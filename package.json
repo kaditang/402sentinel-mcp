@@ -1,0 +1,27 @@
+{
+  "name": "@kaditang/402sentinel-mcp",
+  "version": "0.1.0",
+  "description": "MCP tool to assess an x402 counterparty's risk BEFORE paying — allow/review/block, scored on-chain. Thin client for 402sentinel.com.",
+  "type": "module",
+  "bin": { "402sentinel-mcp": "./dist/index.js" },
+  "main": "dist/index.js",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "node node_modules/typescript/bin/tsc",
+    "start": "node dist/index.js",
+    "dev": "node node_modules/tsx/dist/cli.mjs src/index.ts",
+    "prepublishOnly": "node node_modules/typescript/bin/tsc"
+  },
+  "keywords": ["x402", "mcp", "ai-agents", "risk", "counterparty", "base", "usdc"],
+  "author": "Biao Tang",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@circle-fin/x402-batching": "^3.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "mcpName": "io.github.kaditang/402sentinel-mcp"
+}
