@@ -22,6 +22,34 @@ It's a thin client for the hosted service at **https://402sentinel.com** — the
 scoring model and facilitator-identification logic live server-side (closed); this
 package only forwards the request and pays for it, so it's open source.
 
+## Quickstart — gate a payment in 5 lines
+
+Before your agent pays **any** x402 counterparty, ask the firewall; if it doesn't say
+`allow`, don't pay. No MCP needed — any x402 client works (here, Circle's):
+
+```ts
+import { GatewayClient } from "@circle-fin/x402-batching/client";
+const sentinel = new GatewayClient({ chain: "base", privateKey: process.env.AGENT_KEY });
+
+const { data } = await sentinel.pay("https://402sentinel.com/api/firewall", { method: "POST", body: {
+  payment: { payto_address: target, amount, resource_url },
+  context: { source: "web_content", untrusted_text: pageYouActedOn } } });   // pass what you scraped
+
+if (data.decision !== "allow") throw new Error(`402Sentinel ${data.decision}: ${data.recommended_action}`);
+// …safe to pay `target`.
+```
+
+That one $0.002 call catches **fraudulent routing** (payTo swapped vs the address you
+usually pay), **prompt-injection payments** (a payTo that appeared in `untrusted_text`),
+**drains**, **overcharges**, and **sanctioned/illicit** counterparties.
+
+**In an MCP framework** (Claude, Cursor, …) instead, just add the server — your agent gets
+all 7 tools by name (see Configure below):
+
+```jsonc
+{ "mcpServers": { "402sentinel": { "command": "402sentinel-mcp", "env": { "CLIENT_PRIVATE_KEY": "0x…" } } } }
+```
+
 ## Install
 
 ```sh
