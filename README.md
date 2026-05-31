@@ -7,11 +7,15 @@ decision, scored from on-chain settlement behaviour on Base (address age,
 facilitator-aware payer diversity, settlement maturity) + a delivery-outcome
 flywheel, with honest confidence/coverage.
 
-Tools:
+Tools — vet the **seller**:
 - `assess_counterparty` ($0.002) — risk score + decision + a ready-to-apply `recommended_policy`
 - `assess_counterparty_deep` ($0.02) — same, scans more on-chain history
 - `recommend_policy` ($0.002) — decision + wallet-ready spending policy (caps, denylist, approval)
 - `report_outcome` (free) — after paying, report delivery to train the reliability flywheel
+
+Tools — vet the **payment itself** (buyer-side):
+- `firewall` ($0.002) — should YOUR agent make THIS payment now? Catches fraudulent routing (payTo swapped vs the address you usually pay), drain velocity, overcharge, and injection-sourced instructions. Pass your payer wallet as `agent_id`.
+- `firewall_record` (free) — seed your agent's payment history so the firewall has a behavioural baseline.
 
 It's a thin client for the hosted service at **https://402sentinel.com** — the
 scoring model and facilitator-identification logic live server-side (closed); this

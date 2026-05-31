@@ -129,6 +129,72 @@ const TOOLS: Tool[] = [
     endpoint: "/api/report_outcome",
     paid: false,
   },
+  {
+    name: "firewall",
+    description:
+      "Buyer-side payment firewall: should YOUR agent make THIS payment now? Where assess_counterparty vets the seller, this vets the payment instruction in the context of your agent's own history + provenance. Returns allow/hold/block + signals: routing_anomaly (payTo swapped vs the address you usually pay for this resource = fraudulent routing), velocity_anomaly (drain), amount_anomaly (overcharge), provenance_flag (injection/untrusted source), counterparty_risk. Pass your payer wallet as agent_id. Costs $0.002. Seed history free with firewall_record.",
+    inputSchema: {
+      type: "object",
+      required: ["agent_id", "payment"],
+      properties: {
+        agent_id: { type: "string", description: "stable id for your agent — use your payer wallet address" },
+        payment: {
+          type: "object",
+          required: ["payto_address"],
+          properties: {
+            payto_address: { type: "string", description: "address you're about to pay" },
+            amount: { type: "number" },
+            asset: { type: "string", description: "e.g. USDC" },
+            resource_url: { type: "string", description: "what you're paying for" },
+          },
+        },
+        context: {
+          type: "object",
+          properties: {
+            source: { type: "string", enum: ["tool_output", "web_content", "user", "unknown"], description: "where the payTo/instruction came from" },
+            metadata: { type: "object", description: "x402 description/reason strings (scanned for injection)" },
+            expected_payto: { type: "string", description: "known-good address for this resource (optional)" },
+          },
+        },
+        policy: {
+          type: "object",
+          properties: {
+            max_payment_usdc: { type: "number" },
+            velocity_window_min: { type: "number" },
+            velocity_cap_usdc: { type: "number" },
+            check_counterparty: { type: "boolean" },
+            block_on: { type: "array", items: { type: "string" } },
+          },
+        },
+      },
+    },
+    endpoint: "/api/firewall",
+    paid: true,
+  },
+  {
+    name: "firewall_record",
+    description:
+      "FREE. Seed your agent's payment history so the firewall has a behavioural baseline (record past/known-good payments). Pass your payer wallet as agent_id.",
+    inputSchema: {
+      type: "object",
+      required: ["agent_id", "payment"],
+      properties: {
+        agent_id: { type: "string", description: "use your payer wallet address" },
+        payment: {
+          type: "object",
+          required: ["payto_address"],
+          properties: {
+            payto_address: { type: "string" },
+            amount: { type: "number" },
+            asset: { type: "string" },
+            resource_url: { type: "string" },
+          },
+        },
+      },
+    },
+    endpoint: "/api/firewall/record",
+    paid: false,
+  },
 ];
 
 function clientOrNull(): GatewayClient | null {
@@ -139,7 +205,7 @@ function clientOrNull(): GatewayClient | null {
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.2.0" },
+    { name: "402sentinel", version: "0.3.0" },
     { capabilities: { tools: {} } },
   );
 
