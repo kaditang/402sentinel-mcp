@@ -14,7 +14,7 @@ Tools — vet the **seller**:
 - `report_outcome` (free) — after paying, report delivery to train the reliability flywheel
 
 Tools — vet the **payment itself** (buyer-side):
-- `firewall` ($0.002) — should YOUR agent make THIS payment now? Catches fraudulent routing (payTo swapped vs the address you usually pay), drain velocity, overcharge, and injection-sourced instructions. Pass your payer wallet as `agent_id`.
+- `firewall` ($0.002) — should YOUR agent make THIS payment now? Catches fraudulent routing (payTo swapped vs the address you usually pay), drain velocity, overcharge, and injection-sourced instructions. `agent_id` + a wallet-ownership signature are attached automatically from your configured wallet — trusted routing history with no extra steps.
 - `firewall_record` (free) — seed your agent's payment history so the firewall has a behavioural baseline.
 - `firewall_outcome` (free) — after a verdict, report what actually happened (fraud / legit / …) so the firewall learns which signals are predictive and downweights noisy ones (safety signals stay deterministic).
 
