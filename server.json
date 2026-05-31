@@ -7,19 +7,19 @@
     "source": "github"
   },
   "websiteUrl": "https://402sentinel.com",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@kaditang/402sentinel-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "CLIENT_PRIVATE_KEY",
-          "description": "A Base wallet (with USDC in its Circle Gateway balance) — pays $0.01 per assessment.",
+          "description": "A Base wallet (with USDC in its Circle Gateway balance) — pays per call, from $0.002.",
           "isRequired": true,
           "isSecret": true,
           "format": "string"

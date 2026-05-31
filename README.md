@@ -1,10 +1,17 @@
 # 402sentinel-mcp
 
-An MCP tool that lets your AI agent **check an x402 counterparty's risk before it
-pays**. One tool, `assess_counterparty`: give it a payTo address, get back a
-0–100 risk score + an `allow` / `review` / `block` decision, scored from on-chain
-settlement behaviour on Base (address age, facilitator-aware payer diversity,
-settlement maturity) with honest confidence/coverage.
+MCP tools that let your AI agent **check an x402 counterparty's risk before it
+pays** — and turn that risk into an enforceable wallet spending policy. Give it a
+payTo address, get back a 0–100 risk score + an `allow` / `review` / `block`
+decision, scored from on-chain settlement behaviour on Base (address age,
+facilitator-aware payer diversity, settlement maturity) + a delivery-outcome
+flywheel, with honest confidence/coverage.
+
+Tools:
+- `assess_counterparty` ($0.002) — risk score + decision + a ready-to-apply `recommended_policy`
+- `assess_counterparty_deep` ($0.02) — same, scans more on-chain history
+- `recommend_policy` ($0.002) — decision + wallet-ready spending policy (caps, denylist, approval)
+- `report_outcome` (free) — after paying, report delivery to train the reliability flywheel
 
 It's a thin client for the hosted service at **https://402sentinel.com** — the
 scoring model and facilitator-identification logic live server-side (closed); this
@@ -33,8 +40,9 @@ Add to your MCP client (Claude Desktop, Cursor, etc.):
 }
 ```
 
-Each assessment costs **$0.01**, paid automatically in USDC via x402 (Circle
-Gateway, gas-free on Base) from the configured wallet.
+Paid calls cost from **$0.002** (shallow) to **$0.02** (deep), paid automatically
+in USDC via x402 (Circle Gateway, gas-free on Base) from the configured wallet.
+`report_outcome` is free. (`CLIENT_PRIVATE_KEY` is only needed for the paid tools.)
 
 ## Use
 
@@ -46,12 +54,20 @@ assess_counterparty({
   payment_context: { amount: 10, asset: "USDC" },
   policy: { block_at_score: 70, review_at_score: 40 }
 })
-→ { decision: "review", risk_score: 52, confidence: 0.41, coverage: {...}, dimensions: [...], recommendation: "..." }
+→ { decision: "review", risk_score: 52, confidence: 0.41, coverage: {...},
+    dimensions: [...], recommendation: "...",
+    recommended_policy: { action: "limit", max_payment_usdc: 5, daily_cap_usdc: 15,
+                          add_to_denylist: false, require_human_approval: true } }
 ```
 
-- `block` → don't pay
-- `review` → cap exposure / escrow
+- `block` / `deny` → don't pay
+- `review` / `limit` → cap exposure / escrow (use `recommended_policy` for the caps)
 - `allow` → proceed
+
+`recommend_policy(...)` returns just the decision + `recommended_policy` — apply
+`max_payment_usdc` / `daily_cap_usdc` / `add_to_denylist` directly to your agent
+wallet's spending limits. After paying, call `report_outcome({ assessment_id,
+outcome })` to improve future scores.
 
 ## Disclaimer
 

@@ -2,15 +2,22 @@
 /**
  * 402Sentinel MCP — thin, open-source client.
  *
- * Exposes one tool, `assess_counterparty`, that an agent calls BEFORE paying an
- * x402 counterparty. It pays $0.01 (x402, Circle Gateway on Base) to the hosted
- * 402sentinel.com scoring service and returns a 0-100 risk score + allow/review/
- * block decision. The scoring model / facilitator logic live server-side
- * (closed); this client only forwards + pays, so it's safe to open-source.
+ * Tools an agent calls around an x402 payment:
+ *   - assess_counterparty       ($0.002) — risk score + allow/review/block + a
+ *                                          ready-to-apply spending policy
+ *   - assess_counterparty_deep  ($0.02)  — same, deeper on-chain history
+ *   - recommend_policy          ($0.002) — trimmed view: decision + wallet-ready
+ *                                          spending policy (caps, denylist, approval)
+ *   - report_outcome            (FREE)   — after paying, report delivery to train
+ *                                          the settlement-reliability flywheel
+ *
+ * Payments settle via x402 (Circle Gateway on Base). The scoring model /
+ * facilitator logic / flywheel live server-side (closed); this client only
+ * forwards + pays, so it's safe to open-source.
  *
  * Config (env):
- *   CLIENT_PRIVATE_KEY  — a Base wallet with USDC in its Circle Gateway balance
- *                         (it pays $0.01 per assessment). Required.
+ *   CLIENT_PRIVATE_KEY  — a Base wallet with USDC in its Circle Gateway balance.
+ *                         Required for the paid tools (not for report_outcome).
  *   SENTINEL_URL        — override base URL (default https://402sentinel.com).
  */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -24,42 +31,103 @@ import { GatewayClient } from "@circle-fin/x402-batching/client";
 const BASE = (process.env.SENTINEL_URL ?? "https://402sentinel.com").replace(/\/$/, "");
 const RAW_PK = process.env.CLIENT_PRIVATE_KEY ?? "";
 
-const TOOLS = [
+const targetSchema = {
+  type: "object",
+  required: ["payto_address"],
+  properties: {
+    payto_address: { type: "string", description: "Chain address that will receive the payment" },
+    resource_url: { type: "string", description: "The x402 resource/endpoint URL (optional)" },
+    network: { type: "string", description: "CAIP-2 chain id, e.g. eip155:8453 (optional)" },
+  },
+};
+const paymentContextSchema = {
+  type: "object",
+  properties: {
+    amount: { type: "number", description: "Payment amount you're about to make" },
+    asset: { type: "string", description: "e.g. USDC" },
+  },
+};
+const assessInput = {
+  type: "object",
+  required: ["target"],
+  properties: {
+    target: targetSchema,
+    payment_context: paymentContextSchema,
+    policy: {
+      type: "object",
+      properties: {
+        block_at_score: { type: "number", description: "risk >= this => block (default 70)" },
+        review_at_score: { type: "number", description: "risk >= this => review (default 40)" },
+        min_confidence: { type: "number", description: "below this => force review (default 0.5)" },
+      },
+    },
+  },
+};
+const policyInput = {
+  type: "object",
+  required: ["target"],
+  properties: {
+    target: targetSchema,
+    payment_context: paymentContextSchema,
+    policy: {
+      type: "object",
+      properties: {
+        max_payment_usdc: { type: "number", description: "most you'd expose to ONE counterparty (default 50)" },
+        review_ceiling_usdc: { type: "number", description: "hard per-payment cap on the review tier (default 5)" },
+        min_confidence: { type: "number", description: "below this => require human approval (default 0.5)" },
+      },
+    },
+  },
+};
+
+type Tool = {
+  name: string;
+  description: string;
+  inputSchema: object;
+  endpoint: string;
+  paid: boolean;
+};
+
+const TOOLS: Tool[] = [
   {
     name: "assess_counterparty",
     description:
-      "Assess the risk of an x402 counterparty (a payTo address) BEFORE paying. Returns a 0-100 risk_score and an allow/review/block decision relative to your policy, scored from on-chain settlement behaviour on Base (address age, facilitator-aware payer diversity, settlement maturity) with honest confidence/coverage. Call this before authorizing any x402 payment above your risk threshold. Costs $0.01 (paid automatically in USDC).",
+      "Assess the risk of an x402 counterparty (a payTo address) BEFORE paying. Returns a 0-100 risk_score, an allow/review/block decision, honest confidence/coverage, and a ready-to-apply recommended_policy (per-counterparty caps + approval/denylist), scored from on-chain settlement behaviour on Base + a delivery-outcome flywheel. Call before authorizing any x402 payment above your risk threshold. Costs $0.002 (paid automatically in USDC).",
+    inputSchema: assessInput,
+    endpoint: "/api/assess",
+    paid: true,
+  },
+  {
+    name: "assess_counterparty_deep",
+    description:
+      "Like assess_counterparty but scans more on-chain settlement history for a higher-confidence read. Use for larger or higher-stakes payments. Costs $0.02 (paid automatically in USDC).",
+    inputSchema: assessInput,
+    endpoint: "/api/assess/deep",
+    paid: true,
+  },
+  {
+    name: "recommend_policy",
+    description:
+      "Turn a counterparty's risk into an enforceable spending policy you can apply to your agent wallet. Returns an allow/limit/deny decision plus recommended_policy: max_payment_usdc (per-counterparty cap), daily_cap_usdc, add_to_denylist, require_human_approval. Costs $0.002 (paid automatically in USDC).",
+    inputSchema: policyInput,
+    endpoint: "/api/policy",
+    paid: true,
+  },
+  {
+    name: "report_outcome",
+    description:
+      "FREE. After you pay a counterparty, report whether they delivered so 402Sentinel's settlement-reliability flywheel can learn. Pass the assessment_id returned by a prior assessment.",
     inputSchema: {
       type: "object",
-      required: ["target"],
+      required: ["assessment_id", "outcome"],
       properties: {
-        target: {
-          type: "object",
-          required: ["payto_address"],
-          properties: {
-            payto_address: { type: "string", description: "Chain address that will receive the payment" },
-            resource_url: { type: "string", description: "The x402 resource/endpoint URL (optional)" },
-            network: { type: "string", description: "CAIP-2 chain id, e.g. eip155:8453 (optional)" },
-          },
-        },
-        payment_context: {
-          type: "object",
-          properties: {
-            amount: { type: "number", description: "Payment amount you're about to make" },
-            asset: { type: "string", description: "e.g. USDC" },
-          },
-        },
-        policy: {
-          type: "object",
-          properties: {
-            block_at_score: { type: "number", description: "risk >= this => block (default 70)" },
-            review_at_score: { type: "number", description: "risk >= this => review (default 40)" },
-            min_confidence: { type: "number", description: "below this => force review (default 0.5)" },
-          },
-        },
-        depth: { type: "string", enum: ["shallow", "deep"], description: "shallow=cheap/cached, deep=fresh (default shallow)" },
+        assessment_id: { type: "string", description: "assessment_id from a prior assess/policy call" },
+        outcome: { type: "string", enum: ["delivered", "partial", "not_delivered", "overcharged"] },
+        tx_hash: { type: "string", description: "settlement tx hash (optional)" },
       },
     },
+    endpoint: "/api/report_outcome",
+    paid: false,
   },
 ];
 
@@ -71,38 +139,49 @@ function clientOrNull(): GatewayClient | null {
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.1.0" },
+    { name: "402sentinel", version: "0.2.0" },
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+  }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params;
-    if (name !== "assess_counterparty") {
+    const tool = TOOLS.find((t) => t.name === name);
+    if (!tool) {
       return { content: [{ type: "text", text: `unknown tool: ${name}` }], isError: true };
     }
-    const client = clientOrNull();
-    if (!client) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            error: "CLIENT_PRIVATE_KEY not set. Provide a Base wallet (with USDC in its Circle Gateway balance) so this tool can pay $0.01 per assessment.",
-          }),
-        }],
-        isError: true,
-      };
-    }
     try {
-      const { data } = await client.pay(`${BASE}/api/assess`, {
-        method: "POST",
-        body: args,
-      });
+      let data: unknown;
+      if (tool.paid) {
+        const client = clientOrNull();
+        if (!client) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: "CLIENT_PRIVATE_KEY not set. Provide a Base wallet (with USDC in its Circle Gateway balance) so this tool can pay for the call.",
+              }),
+            }],
+            isError: true,
+          };
+        }
+        ({ data } = await client.pay(`${BASE}${tool.endpoint}`, { method: "POST", body: args }));
+      } else {
+        // free endpoint — plain POST, no payment
+        const res = await fetch(`${BASE}${tool.endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(args ?? {}),
+        });
+        data = await res.json().catch(() => ({}));
+      }
       return { content: [{ type: "text", text: JSON.stringify(data) }] };
     } catch (e) {
       return {
-        content: [{ type: "text", text: JSON.stringify({ error: `assessment failed: ${(e as Error).message}` }) }],
+        content: [{ type: "text", text: JSON.stringify({ error: `${name} failed: ${(e as Error).message}` }) }],
         isError: true,
       };
     }

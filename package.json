@@ -1,7 +1,7 @@
 {
   "name": "@kaditang/402sentinel-mcp",
-  "version": "0.1.0",
-  "description": "MCP tool to assess an x402 counterparty's risk BEFORE paying — allow/review/block, scored on-chain. Thin client for 402sentinel.com.",
+  "version": "0.2.0",
+  "description": "MCP tools to assess an x402 counterparty BEFORE paying — risk score, allow/review/block, and a wallet-ready spending policy. Thin client for 402sentinel.com.",
   "type": "module",
   "bin": { "402sentinel-mcp": "./dist/index.js" },
   "main": "dist/index.js",
