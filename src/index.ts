@@ -132,7 +132,7 @@ const TOOLS: Tool[] = [
   {
     name: "firewall",
     description:
-      "Buyer-side payment firewall: should YOUR agent make THIS payment now? Where assess_counterparty vets the seller, this vets the payment instruction in the context of your agent's own history + provenance. Returns allow/hold/block + signals: routing_anomaly (payTo swapped vs the address you usually pay for this resource = fraudulent routing), velocity_anomaly (drain), amount_anomaly (overcharge), provenance_flag (injection/untrusted source), counterparty_risk. Pass your payer wallet as agent_id. Costs $0.002. Seed history free with firewall_record.",
+      "Buyer-side payment firewall: should YOUR agent make THIS payment now? Where assess_counterparty vets the seller, this vets the payment instruction in the context of your agent's own history + provenance. Returns allow/hold/block + signals: routing_anomaly (payTo swapped vs the address you usually pay = fraudulent routing), velocity_anomaly (drain), amount_anomaly (overcharge), provenance_flag, counterparty_risk, injection_destination (if the payTo appears in the untrusted page/tool-output you're acting on, the destination was injected — pass it as context.untrusted_text), intent_mismatch (pass context.intended={payto,max_amount} so a mid-flight redirect is caught), new_counterparty_burst, recurring_flagged (poisoned-memory loop). STRONGLY recommended: pass untrusted_text + intended to catch prompt-injection payments. Pass your payer wallet as agent_id. Costs $0.002. Seed history free with firewall_record.",
     inputSchema: {
       type: "object",
       required: ["agent_id", "payment"],
@@ -154,6 +154,8 @@ const TOOLS: Tool[] = [
             source: { type: "string", enum: ["tool_output", "web_content", "user", "unknown"], description: "where the payTo/instruction came from" },
             metadata: { type: "object", description: "x402 description/reason strings (scanned for injection)" },
             expected_payto: { type: "string", description: "known-good address for this resource (optional)" },
+            untrusted_text: { type: "string", description: "the page/tool-output content you're acting on — if the payTo appears in it, the destination was injected (hard block)" },
+            intended: { type: "object", description: "what you meant to do: { payto, max_amount } — any deviation = mid-flight redirect (hard block)", properties: { payto: { type: "string" }, max_amount: { type: "number" } } },
           },
         },
         policy: {
@@ -205,7 +207,7 @@ function clientOrNull(): GatewayClient | null {
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.3.0" },
+    { name: "402sentinel", version: "0.4.0" },
     { capabilities: { tools: {} } },
   );
 

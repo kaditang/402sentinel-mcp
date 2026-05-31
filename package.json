@@ -1,6 +1,6 @@
 {
   "name": "@kaditang/402sentinel-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "MCP tools for x402 payment safety — vet the counterparty (risk score, allow/review/block, spending policy) AND vet the payment itself (buyer-side firewall: routing/drain/injection). Thin client for 402sentinel.com.",
   "type": "module",
   "bin": { "402sentinel-mcp": "./dist/index.js" },
