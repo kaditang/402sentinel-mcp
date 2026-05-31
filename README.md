@@ -16,6 +16,7 @@ Tools — vet the **seller**:
 Tools — vet the **payment itself** (buyer-side):
 - `firewall` ($0.002) — should YOUR agent make THIS payment now? Catches fraudulent routing (payTo swapped vs the address you usually pay), drain velocity, overcharge, and injection-sourced instructions. Pass your payer wallet as `agent_id`.
 - `firewall_record` (free) — seed your agent's payment history so the firewall has a behavioural baseline.
+- `firewall_outcome` (free) — after a verdict, report what actually happened (fraud / legit / …) so the firewall learns which signals are predictive and downweights noisy ones (safety signals stay deterministic).
 
 It's a thin client for the hosted service at **https://402sentinel.com** — the
 scoring model and facilitator-identification logic live server-side (closed); this

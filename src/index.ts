@@ -197,6 +197,21 @@ const TOOLS: Tool[] = [
     endpoint: "/api/firewall/record",
     paid: false,
   },
+  {
+    name: "firewall_outcome",
+    description:
+      "FREE. After a firewall verdict, report what actually happened so 402Sentinel learns which signals are predictive and downweights noisy ones (hard-block safety signals stay deterministic). Pass the assessment_id (fw_…) from a prior firewall call.",
+    inputSchema: {
+      type: "object",
+      required: ["assessment_id", "outcome"],
+      properties: {
+        assessment_id: { type: "string", description: "the fw_… id from a prior firewall call" },
+        outcome: { type: "string", enum: ["fraud", "confirmed_fraud", "not_delivered", "overcharged", "drained", "scam", "delivered", "legit", "fine"], description: "bad: fraud/confirmed_fraud/not_delivered/overcharged/drained/scam · good: delivered/legit/fine" },
+      },
+    },
+    endpoint: "/api/firewall/outcome",
+    paid: false,
+  },
 ];
 
 function clientOrNull(): GatewayClient | null {
@@ -207,7 +222,7 @@ function clientOrNull(): GatewayClient | null {
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.4.0" },
+    { name: "402sentinel", version: "0.5.0" },
     { capabilities: { tools: {} } },
   );
 
