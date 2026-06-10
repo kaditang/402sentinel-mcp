@@ -18,6 +18,11 @@ Tools — vet the **payment itself** (buyer-side):
 - `firewall_record` (free) — seed your agent's payment history so the firewall has a behavioural baseline.
 - `firewall_outcome` (free) — after a verdict, report what actually happened (fraud / legit / …) so the firewall learns which signals are predictive and downweights noisy ones (safety signals stay deterministic).
 
+Tools — vet the **asset** and the **flow**:
+- `assess_rwa` ($0.02) — RWA risk gate: score a **tokenized asset** (treasury/stock/credit) before buying it. Proxy-aware transfer-restriction scan + behavioral transfer simulation — catches permissioned securities an agent can buy but **not transfer or redeem** (trapped funds), live pause state, issuer identity + issuer sanctions.
+- `compliance_check` ($0.02) — pre-pay compliance screen: OFAC sanctions (hard block), counterparty due-diligence tier, structuring/smurfing detection, FATF Travel-Rule threshold (informational). Not legal advice.
+- `verify_service` ($0.02) — opt-in **402Sentinel Verified** badge: submit your own payTo for a deep settlement-graph audit; pass → signed time-boxed credential + public allow-list. Failures stay private.
+
 It's a thin client for the hosted service at **https://402sentinel.com** — the
 scoring model and facilitator-identification logic live server-side (closed); this
 package only forwards the request and pays for it, so it's open source.
@@ -25,15 +30,27 @@ package only forwards the request and pays for it, so it's open source.
 ## Quickstart — gate a payment in 5 lines
 
 Before your agent pays **any** x402 counterparty, ask the firewall; if it doesn't say
-`allow`, don't pay. No MCP needed — any x402 client works (here, Circle's):
+`allow`, don't pay. No MCP needed — any standard x402 v2 client works:
 
 ```ts
-import { GatewayClient } from "@circle-fin/x402-batching/client";
-const sentinel = new GatewayClient({ chain: "base", privateKey: process.env.AGENT_KEY });
+import { x402Client, x402HTTPClient } from "@x402/core/client";
+import { registerExactEvmScheme } from "@x402/evm/exact/client";
+import { privateKeyToAccount } from "viem/accounts";
 
-const { data } = await sentinel.pay("https://402sentinel.com/api/firewall", { method: "POST", body: {
+const client = new x402Client();
+registerExactEvmScheme(client, { signer: privateKeyToAccount(process.env.AGENT_KEY) });
+const http = new x402HTTPClient(client);
+
+const body = JSON.stringify({
   payment: { payto_address: target, amount, resource_url },
-  context: { source: "web_content", untrusted_text: pageYouActedOn } } });   // pass what you scraped
+  context: { source: "web_content", untrusted_text: pageYouActedOn },   // pass what you scraped
+});
+const url = "https://402sentinel.com/api/firewall";
+const init = (h = {}) => ({ method: "POST", headers: { "Content-Type": "application/json", ...h }, body });
+const r1 = await fetch(url, init());
+const pr = http.getPaymentRequiredResponse((n) => r1.headers.get(n), await r1.json());
+const payment = http.encodePaymentSignatureHeader(await http.createPaymentPayload(pr));
+const data = await (await fetch(url, init(payment))).json();
 
 if (data.decision !== "allow") throw new Error(`402Sentinel ${data.decision}: ${data.recommended_action}`);
 // …safe to pay `target`.
@@ -44,7 +61,7 @@ usually pay), **prompt-injection payments** (a payTo that appeared in `untrusted
 **drains**, **overcharges**, and **sanctioned/illicit** counterparties.
 
 **In an MCP framework** (Claude, Cursor, …) instead, just add the server — your agent gets
-all 7 tools by name (see Configure below):
+all 10 tools by name (see Configure below):
 
 ```jsonc
 { "mcpServers": { "402sentinel": { "command": "402sentinel-mcp", "env": { "CLIENT_PRIVATE_KEY": "0x…" } } } }
@@ -66,7 +83,7 @@ Add to your MCP client (Claude Desktop, Cursor, etc.):
     "402sentinel": {
       "command": "402sentinel-mcp",
       "env": {
-        "CLIENT_PRIVATE_KEY": "0x...  // a Base wallet with USDC in its Circle Gateway balance"
+        "CLIENT_PRIVATE_KEY": "0x...  // a Base wallet holding USDC on-chain (no ETH/gas needed)"
       }
     }
   }
@@ -74,8 +91,9 @@ Add to your MCP client (Claude Desktop, Cursor, etc.):
 ```
 
 Paid calls cost from **$0.002** (shallow) to **$0.02** (deep), paid automatically
-in USDC via x402 (Circle Gateway, gas-free on Base) from the configured wallet.
-`report_outcome` is free. (`CLIENT_PRIVATE_KEY` is only needed for the paid tools.)
+in USDC via standard x402 (`exact` EIP-3009 on Base — the facilitator submits the
+transfer, so the buyer needs no gas) from the configured wallet. The free tools
+need no key.
 
 ## Use
 

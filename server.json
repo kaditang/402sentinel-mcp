@@ -1,25 +1,25 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.kaditang/402sentinel-mcp",
-  "description": "Assess an x402 counterparty's risk BEFORE paying: allow/review/block, scored on-chain (Base).",
+  "description": "x402 payment-safety suite for AI agents: counterparty risk gate, buyer-side payment firewall, compliance screen, RWA (tokenized-asset) risk gate, Verified badge. Pay-per-call, scored on-chain.",
   "repository": {
     "url": "https://github.com/kaditang/402sentinel-mcp",
     "source": "github"
   },
   "websiteUrl": "https://402sentinel.com",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@kaditang/402sentinel-mcp",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "CLIENT_PRIVATE_KEY",
-          "description": "A Base wallet (with USDC in its Circle Gateway balance) — pays per call, from $0.002.",
+          "description": "A Base wallet holding USDC on-chain (no gas needed) \u2014 pays per call, from $0.002.",
           "isRequired": true,
           "isSecret": true,
           "format": "string"

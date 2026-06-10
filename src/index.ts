@@ -8,16 +8,21 @@
  *   - assess_counterparty_deep  ($0.02)  — same, deeper on-chain history
  *   - recommend_policy          ($0.002) — trimmed view: decision + wallet-ready
  *                                          spending policy (caps, denylist, approval)
+ *   - firewall (+record/outcome)($0.002) — buyer-side payment firewall
+ *   - compliance_check          ($0.02)  — OFAC + due-diligence tier + structuring
+ *   - assess_rwa                ($0.02)  — tokenized-asset (RWA) risk gate
+ *   - verify_service            ($0.02)  — opt-in Verified badge (deep audit)
  *   - report_outcome            (FREE)   — after paying, report delivery to train
  *                                          the settlement-reliability flywheel
  *
- * Payments settle via x402 (Circle Gateway on Base). The scoring model /
- * facilitator logic / flywheel live server-side (closed); this client only
- * forwards + pays, so it's safe to open-source.
+ * Payments settle via STANDARD x402 (`exact` EIP-3009, USDC on Base, via the
+ * Coinbase CDP facilitator — gas-free for the buyer; the facilitator submits the
+ * transfer). The scoring model / facilitator logic / flywheel live server-side
+ * (closed); this client only forwards + pays, so it's safe to open-source.
  *
  * Config (env):
- *   CLIENT_PRIVATE_KEY  — a Base wallet with USDC in its Circle Gateway balance.
- *                         Required for the paid tools (not for report_outcome).
+ *   CLIENT_PRIVATE_KEY  — a Base wallet holding USDC (on-chain). Required for the
+ *                         paid tools (not for the free ones). No ETH/gas needed.
  *   SENTINEL_URL        — override base URL (default https://402sentinel.com).
  */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -26,7 +31,8 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { GatewayClient } from "@circle-fin/x402-batching/client";
+import { x402Client, x402HTTPClient } from "@x402/core/client";
+import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 
 const BASE = (process.env.SENTINEL_URL ?? "https://402sentinel.com").replace(/\/$/, "");
@@ -194,6 +200,65 @@ const TOOLS: Tool[] = [
     paid: true,
   },
   {
+    name: "compliance_check",
+    description:
+      "Pre-pay COMPLIANCE screen for regulated-money x402 flows. Returns compliance_decision (pass/flag/block), diligence_tier, obligations, and checks: OFAC sanctions (hit = hard block), counterparty due-diligence tier from the on-chain risk engine, structuring/smurfing detection (many sub-threshold payments to one counterparty aggregating to a reportable sum in 24h — pass target.agent_id, e.g. your wallet, to enable it), and the FATF Travel-Rule threshold reported as informational. Screening support for compliance workflows — not legal advice. Costs $0.02 (paid automatically in USDC).",
+    inputSchema: {
+      type: "object",
+      required: ["target"],
+      properties: {
+        target: {
+          type: "object",
+          required: ["payto_address"],
+          properties: {
+            payto_address: { type: "string", description: "Chain address that will receive the payment" },
+            agent_id: { type: "string", description: "The paying agent's id/wallet — enables structuring detection (recommended)" },
+          },
+        },
+        payment_context: paymentContextSchema,
+      },
+    },
+    endpoint: "/api/compliance",
+    paid: true,
+  },
+  {
+    name: "assess_rwa",
+    description:
+      "RWA risk gate — score a TOKENIZED ASSET (tokenized treasury/stock/credit) BEFORE buying it. Detects PERMISSIONED securities an agent can buy but NOT transfer/redeem (= trapped funds): proxy-aware transfer-restriction scan (resolves the EIP-1967 implementation; ERC-1404/ERC-3643/allowlist/freeze/pause), a behavioral transfer simulation (on-chain revert = the gate is live), live pause state, token identity (symbol/name/supply), and issuer/admin identity + issuer OFAC screening. Returns risk_score 0-100 + allow/review/block + is_permissioned_security + honest not_checked gaps (backing/peg/holder concentration are off-chain). NOT investment advice. Costs $0.02 (paid automatically in USDC).",
+    inputSchema: {
+      type: "object",
+      required: ["target"],
+      properties: {
+        target: {
+          type: "object",
+          required: ["payto_address"],
+          properties: {
+            payto_address: { type: "string", description: "The RWA token CONTRACT address (0x…)" },
+            network: { type: "string", enum: ["eip155:8453", "eip155:1"], description: "Chain — Base (default) or Ethereum" },
+          },
+        },
+      },
+    },
+    endpoint: "/api/assess/rwa",
+    paid: true,
+  },
+  {
+    name: "verify_service",
+    description:
+      "402Sentinel Verified (opt-in badge): submit YOUR OWN service's payTo for a deep settlement-graph audit (facilitator-aware, multi-hop, exchange-labelled). If it passes (organic, sufficient confidence), a signed time-boxed (30d) credential is issued and your service joins the public allow-list at /api/verified. Positive-only: failing audits are returned privately, never published. SLOW (deep on-chain scan, up to ~3 minutes). Costs $0.02 (paid automatically in USDC).",
+    inputSchema: {
+      type: "object",
+      required: ["payto"],
+      properties: {
+        payto: { type: "string", description: "Your service's receiving address" },
+        resource_url: { type: "string", description: "Your x402 endpoint URL (optional)" },
+        claimed_buyers: { type: "number", description: "Buyers you claim to have (optional; checked against the graph)" },
+      },
+    },
+    endpoint: "/api/verify",
+    paid: true,
+  },
+  {
     name: "firewall_record",
     description:
       "FREE. Seed your agent's payment history so the firewall has a behavioural baseline (record past/known-good payments). agent_id and the wallet-ownership signature are attached automatically from your configured wallet, so the seeded history is trusted.",
@@ -234,14 +299,35 @@ const TOOLS: Tool[] = [
   },
 ];
 
-function clientOrNull(): GatewayClient | null {
-  if (!PK) return null;
-  return new GatewayClient({ chain: "base", privateKey: PK });
+// Pay a 402-protected endpoint via the STANDARD x402 v2 flow: probe → build the
+// EIP-3009 payment locally from the challenge → retry with the payment header.
+// (The 402Sentinel server normalises payload shape server-side for CDP compat.)
+async function payFetch(url: string, body: Record<string, unknown>): Promise<unknown> {
+  const client = new x402Client();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  registerExactEvmScheme(client, { signer: account as any });
+  const http = new x402HTTPClient(client);
+  const init = (extra?: Record<string, string>): RequestInit => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...extra },
+    body: JSON.stringify(body),
+  });
+  const r1 = await fetch(url, init());
+  if (r1.status !== 402) return await r1.json().catch(() => ({}));
+  const pr = http.getPaymentRequiredResponse((n) => r1.headers.get(n), await r1.json().catch(() => ({})));
+  const payload = await http.createPaymentPayload(pr);
+  const headers = http.encodePaymentSignatureHeader(payload);
+  const r2 = await fetch(url, init(headers));
+  const data = await r2.json().catch(() => ({}));
+  if (r2.status === 402) {
+    throw new Error("payment was not accepted (still 402) — check the wallet's Base USDC balance");
+  }
+  return data;
 }
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.6.0" },
+    { name: "402sentinel", version: "0.7.0" },
     { capabilities: { tools: {} } },
   );
 
@@ -267,19 +353,18 @@ async function main() {
       }
       let data: unknown;
       if (tool.paid) {
-        const client = clientOrNull();
-        if (!client) {
+        if (!account) {
           return {
             content: [{
               type: "text",
               text: JSON.stringify({
-                error: "CLIENT_PRIVATE_KEY not set. Provide a Base wallet (with USDC in its Circle Gateway balance) so this tool can pay for the call.",
+                error: "CLIENT_PRIVATE_KEY not set. Provide a Base wallet holding USDC (on-chain; no gas needed) so this tool can pay for the call.",
               }),
             }],
             isError: true,
           };
         }
-        ({ data } = await client.pay(`${BASE}${tool.endpoint}`, { method: "POST", body }));
+        data = await payFetch(`${BASE}${tool.endpoint}`, body);
       } else {
         // free endpoint — plain POST, no payment
         const res = await fetch(`${BASE}${tool.endpoint}`, {
