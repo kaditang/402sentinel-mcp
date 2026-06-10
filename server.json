@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.kaditang/402sentinel-mcp",
-  "description": "x402 payment-safety suite for AI agents: counterparty risk gate, buyer-side payment firewall, compliance screen, RWA (tokenized-asset) risk gate, Verified badge. Pay-per-call, scored on-chain.",
+  "description": "x402 payment safety for AI agents: counterparty risk gate, payment firewall, compliance, RWA gate.",
   "repository": {
     "url": "https://github.com/kaditang/402sentinel-mcp",
     "source": "github"
   },
   "websiteUrl": "https://402sentinel.com",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@kaditang/402sentinel-mcp",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "transport": {
         "type": "stdio"
       },

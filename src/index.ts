@@ -112,6 +112,8 @@ type Tool = {
   inputSchema: object;
   endpoint: string;
   paid: boolean;
+  usd?: number; // the tool's advertised price — payFetch refuses challenges above ~2× this
+  timeoutMs?: number; // per-call fetch bound (default 30s; verify's deep scan needs ~3min)
 };
 
 const TOOLS: Tool[] = [
@@ -122,6 +124,7 @@ const TOOLS: Tool[] = [
     inputSchema: assessInput,
     endpoint: "/api/assess",
     paid: true,
+    usd: 0.002,
   },
   {
     name: "assess_counterparty_deep",
@@ -130,6 +133,7 @@ const TOOLS: Tool[] = [
     inputSchema: assessInput,
     endpoint: "/api/assess/deep",
     paid: true,
+    usd: 0.02,
   },
   {
     name: "recommend_policy",
@@ -138,6 +142,7 @@ const TOOLS: Tool[] = [
     inputSchema: policyInput,
     endpoint: "/api/policy",
     paid: true,
+    usd: 0.002,
   },
   {
     name: "report_outcome",
@@ -198,6 +203,7 @@ const TOOLS: Tool[] = [
     },
     endpoint: "/api/firewall",
     paid: true,
+    usd: 0.002,
   },
   {
     name: "compliance_check",
@@ -220,6 +226,7 @@ const TOOLS: Tool[] = [
     },
     endpoint: "/api/compliance",
     paid: true,
+    usd: 0.02,
   },
   {
     name: "assess_rwa",
@@ -241,6 +248,7 @@ const TOOLS: Tool[] = [
     },
     endpoint: "/api/assess/rwa",
     paid: true,
+    usd: 0.02,
   },
   {
     name: "verify_service",
@@ -257,6 +265,8 @@ const TOOLS: Tool[] = [
     },
     endpoint: "/api/verify",
     paid: true,
+    usd: 0.02,
+    timeoutMs: 190000,
   },
   {
     name: "firewall_record",
@@ -302,7 +312,13 @@ const TOOLS: Tool[] = [
 // Pay a 402-protected endpoint via the STANDARD x402 v2 flow: probe → build the
 // EIP-3009 payment locally from the challenge → retry with the payment header.
 // (The 402Sentinel server normalises payload shape server-side for CDP compat.)
-async function payFetch(url: string, body: Record<string, unknown>): Promise<unknown> {
+// SAFETY: the EIP-3009 signature MOVES FUNDS for whatever amount the challenge
+// demands — so before signing we assert every offered option is within the tool's
+// known price (small buffer). A hostile/compromised server (or a SENTINEL_URL
+// pointed elsewhere) can therefore never make this client sign more than ~2× the
+// advertised price, instead of "up to the wallet balance".
+const PRICE_BUFFER = 2; // tolerate small price bumps without a package update
+async function payFetch(url: string, body: Record<string, unknown>, maxUsd: number, timeoutMs: number): Promise<unknown> {
   const client = new x402Client();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   registerExactEvmScheme(client, { signer: account as any });
@@ -311,10 +327,20 @@ async function payFetch(url: string, body: Record<string, unknown>): Promise<unk
     method: "POST",
     headers: { "Content-Type": "application/json", ...extra },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const r1 = await fetch(url, init());
   if (r1.status !== 402) return await r1.json().catch(() => ({}));
   const pr = http.getPaymentRequiredResponse((n) => r1.headers.get(n), await r1.json().catch(() => ({})));
+  const capAtomic = Math.ceil(maxUsd * PRICE_BUFFER * 1e6); // USDC has 6 decimals
+  for (const opt of (pr as { accepts?: Array<{ amount?: string | number; network?: string }> }).accepts ?? []) {
+    const amt = Number(opt?.amount ?? 0);
+    if (!Number.isFinite(amt) || amt > capAtomic) {
+      throw new Error(
+        `refusing to pay: the 402 challenge demands ${amt} atomic USDC (> cap ${capAtomic} for this $${maxUsd} tool) — possible hostile/misconfigured server`,
+      );
+    }
+  }
   const payload = await http.createPaymentPayload(pr);
   const headers = http.encodePaymentSignatureHeader(payload);
   const r2 = await fetch(url, init(headers));
@@ -327,7 +353,7 @@ async function payFetch(url: string, body: Record<string, unknown>): Promise<unk
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.7.0" },
+    { name: "402sentinel", version: "0.7.1" },
     { capabilities: { tools: {} } },
   );
 
@@ -364,13 +390,14 @@ async function main() {
             isError: true,
           };
         }
-        data = await payFetch(`${BASE}${tool.endpoint}`, body);
+        data = await payFetch(`${BASE}${tool.endpoint}`, body, tool.usd ?? 0.02, tool.timeoutMs ?? 30000);
       } else {
         // free endpoint — plain POST, no payment
         const res = await fetch(`${BASE}${tool.endpoint}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(tool.timeoutMs ?? 30000),
         });
         data = await res.json().catch(() => ({}));
       }
