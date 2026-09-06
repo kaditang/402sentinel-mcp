@@ -15,7 +15,7 @@
     "build": "node node_modules/typescript/bin/tsc",
     "start": "node dist/index.js",
     "dev": "node node_modules/tsx/dist/cli.mjs src/index.ts",
-    "prepublishOnly": "node node_modules/typescript/bin/tsc"
+    "prepublishOnly": "npm whoami >/dev/null 2>&1 || { echo ''; echo '  x npm auth expired (or registry unreachable) -- run: npm login'; echo '    Publishing while logged out fails with a MISLEADING E404 \"not in this registry\",'; echo '    never a 401, and the package name/version are fine.'; echo '    Override (registry flaky, auth actually fine): npm publish --ignore-scripts'; echo ''; exit 1; } && node node_modules/typescript/bin/tsc"
   },
   "keywords": [
     "x402",
