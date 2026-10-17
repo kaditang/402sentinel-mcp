@@ -353,7 +353,7 @@ async function payFetch(url: string, body: Record<string, unknown>, maxUsd: numb
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.8.0" },
+    { name: "402sentinel", version: "0.8.1" },
     { capabilities: { tools: {} } },
   );
 
