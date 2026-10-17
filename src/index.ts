@@ -34,6 +34,7 @@ import {
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
+import { ownerMessage, payloadLine } from "./owner-proof.js";
 
 const BASE = (process.env.SENTINEL_URL ?? "https://402sentinel.com").replace(/\/$/, "");
 const RAW_PK = process.env.CLIENT_PRIVATE_KEY ?? "";
@@ -43,17 +44,16 @@ const PK = (!RAW_PK || RAW_PK.startsWith("0xYour"))
 const account = PK ? privateKeyToAccount(PK) : null;
 
 // Tools whose writes build TRUSTED history → auto-attach a wallet-ownership proof.
-// SAFETY: we sign ONLY this exact namespaced template (never arbitrary or server-
-// supplied content — no blind signing). It's an EIP-191 message signature, NOT a
+// SAFETY: we sign ONLY this exact namespaced template over the request we are about to
+// send (never arbitrary or server-supplied content — no blind signing). It's an EIP-191 message signature, NOT a
 // transaction: it can't move funds, isn't replayable as a tx, and only proves the
 // signer controls its OWN agent_id. Scoped, harmless.
 const SIGN_TOOLS = new Set(["firewall", "firewall_record", "firewall_outcome"]);
 
-async function ownerProof(action: string): Promise<Record<string, unknown>> {
+async function ownerProof(action: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (!account) return {};
   const owner_ts = Math.floor(Date.now() / 1000);
-  const agent = account.address.toLowerCase();
-  const owner_sig = await account.signMessage({ message: `402sentinel:${action}:${agent}:${owner_ts}` });
+  const owner_sig = await account.signMessage({ message: ownerMessage(action, account.address, owner_ts, payloadLine(action, body)) });
   return { owner_sig, owner_ts };
 }
 
@@ -353,7 +353,7 @@ async function payFetch(url: string, body: Record<string, unknown>, maxUsd: numb
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.7.1" },
+    { name: "402sentinel", version: "0.8.0" },
     { capabilities: { tools: {} } },
   );
 
@@ -372,10 +372,10 @@ async function main() {
       // wallet for the signable tools, so the agent's history is trusted automatically.
       let body: Record<string, unknown> = (args ?? {}) as Record<string, unknown>;
       if (account && SIGN_TOOLS.has(tool.name)) {
-        body = { ...body, ...(await ownerProof(tool.name)) };
         if (tool.name === "firewall" || tool.name === "firewall_record") {
           body = { ...body, agent_id: account.address }; // the wallet IS the agent identity
         }
+        body = { ...body, ...(await ownerProof(tool.name, body)) };
       }
       let data: unknown;
       if (tool.paid) {
