@@ -2,6 +2,8 @@
 
 > [!WARNING]
 > **Retirement notice.** The 402Sentinel service this package talks to (402sentinel.com) will be retired on **31 October 2026**, and the domain will not be renewed (it lapses in May 2027). After 31 October the default endpoint stops answering; after May 2027 the domain may be controlled by someone else. **This package can make x402 payments, so do not keep a version that defaults to 402sentinel.com** — uninstall it, or point it only at an endpoint you trust. The package is deprecated; the code stays here under its licence.
+>
+> **0.9.0 (final release):** there is no default endpoint any more, and `402sentinel.com` is refused even if you set it, so this version can never send requests or payments to the retired domain. Set `SENTINEL_URL` only to a server you run and trust.
 
 MCP tools that let your AI agent **check an x402 counterparty's risk before it
 pays** — and turn that risk into an enforceable wallet spending policy. Give it a

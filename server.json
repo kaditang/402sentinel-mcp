@@ -1,18 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.kaditang/402sentinel-mcp",
-  "description": "x402 payment safety for AI agents: counterparty risk gate, payment firewall, compliance, RWA gate.",
+  "description": "DEPRECATED - the hosted 402Sentinel service was retired on 2026-10-31. Client for x402 payment safety checks.",
   "repository": {
     "url": "https://github.com/kaditang/402sentinel-mcp",
     "source": "github"
   },
-  "websiteUrl": "https://402sentinel.com",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@kaditang/402sentinel-mcp",
-      "version": "0.8.1",
+      "version": "0.9.0",
       "transport": {
         "type": "stdio"
       },
@@ -26,8 +25,8 @@
         },
         {
           "name": "SENTINEL_URL",
-          "description": "Override the service base URL (default https://402sentinel.com).",
-          "isRequired": false,
+          "description": "Required since 0.9.0 (the hosted service was retired on 2026-10-31): base URL of a 402Sentinel server you trust. 402sentinel.com is refused.",
+          "isRequired": true,
           "isSecret": false,
           "format": "string"
         }

@@ -23,7 +23,8 @@
  * Config (env):
  *   CLIENT_PRIVATE_KEY  — a Base wallet holding USDC (on-chain). Required for the
  *                         paid tools (not for the free ones). No ETH/gas needed.
- *   SENTINEL_URL        — override base URL (default https://402sentinel.com).
+ *   SENTINEL_URL        — REQUIRED since 0.9.0: base URL of a 402Sentinel server you trust. The hosted
+ *                         service was retired on 2026-10-31; 402sentinel.com is refused (see endpoint.ts).
  */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -35,8 +36,10 @@ import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 import { ownerMessage, payloadLine } from "./owner-proof.js";
+import { resolveEndpoint } from "./endpoint.js";
 
-const BASE = (process.env.SENTINEL_URL ?? "https://402sentinel.com").replace(/\/$/, "");
+const ENDPOINT = resolveEndpoint(process.env.SENTINEL_URL);
+const BASE = ENDPOINT.ok ? ENDPOINT.base : "";
 const RAW_PK = process.env.CLIENT_PRIVATE_KEY ?? "";
 const PK = (!RAW_PK || RAW_PK.startsWith("0xYour"))
   ? null
@@ -353,7 +356,7 @@ async function payFetch(url: string, body: Record<string, unknown>, maxUsd: numb
 
 async function main() {
   const server = new Server(
-    { name: "402sentinel", version: "0.8.1" },
+    { name: "402sentinel", version: "0.9.0" },
     { capabilities: { tools: {} } },
   );
 
@@ -366,6 +369,9 @@ async function main() {
     const tool = TOOLS.find((t) => t.name === name);
     if (!tool) {
       return { content: [{ type: "text", text: `unknown tool: ${name}` }], isError: true };
+    }
+    if (!ENDPOINT.ok) {
+      return { content: [{ type: "text", text: ENDPOINT.reason }], isError: true };
     }
     try {
       // Build the request body; auto-attach the ownership proof + set agent_id = own
@@ -411,6 +417,7 @@ async function main() {
   });
 
   const transport = new StdioServerTransport();
+  if (!ENDPOINT.ok) console.error(`402sentinel-mcp: ${ENDPOINT.reason}`);
   await server.connect(transport);
 }
 
